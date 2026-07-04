@@ -202,6 +202,40 @@ tbody tr:hover{background:rgba(255,255,255,.02);}
 .user-row .uname{flex:1;font-weight:600;}
 .user-row select{font-size:12px;padding:5px 8px;}
 
+.import-preview-box{
+  background:var(--surface-alt);border:1px solid var(--border);border-radius:6px;
+  padding:12px 14px;margin-bottom:16px;font-size:13px;font-family:'JetBrains Mono',monospace;
+}
+.import-preview-box .file-name{color:var(--gold);font-family:'Inter',sans-serif;font-weight:600;margin-bottom:6px;}
+.import-mode-choice{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
+.import-mode-option{
+  display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:8px;
+  border:1px solid var(--border);cursor:pointer;transition:border-color .12s ease, background .12s ease;
+}
+.import-mode-option:hover{border-color:var(--gold);}
+.import-mode-option input{margin-top:3px;flex-shrink:0;}
+.import-mode-option.danger:hover{border-color:var(--red);}
+.import-mode-title{font-weight:600;font-size:13.5px;}
+.import-mode-desc{color:var(--subtext);font-size:12px;margin-top:2px;line-height:1.4;}
+.import-replace-confirm{
+  background:rgba(193,68,58,.08);border:1px solid var(--red);border-radius:8px;
+  padding:14px;margin-bottom:16px;font-size:13px;line-height:1.5;
+}
+.import-replace-confirm input{width:100%;margin-top:8px;}
+.import-actions{display:flex;justify-content:flex-end;gap:8px;}
+.import-error-list{
+  background:rgba(193,68,58,.08);border:1px solid var(--red);border-radius:6px;
+  padding:12px 14px;margin-bottom:16px;font-size:12.5px;max-height:220px;overflow-y:auto;
+}
+.import-error-list ul{margin:6px 0 0 18px;padding:0;}
+.import-error-list li{margin-bottom:3px;}
+.import-success-box{
+  background:rgba(91,140,90,.1);border:1px solid var(--green);border-radius:6px;
+  padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.6;
+}
+.import-warnings{color:var(--subtext);font-size:12px;margin-top:8px;}
+
+
 ::-webkit-scrollbar{width:9px;height:9px;}
 ::-webkit-scrollbar-track{background:var(--surface);}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px;}

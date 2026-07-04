@@ -135,6 +135,7 @@
     `;
     document.getElementById('addGangForm').style.display = canEdit() ? 'flex' : 'none';
     document.getElementById('usersBtn').style.display = isAdmin() ? 'flex' : 'none';
+    document.getElementById('importBtn').style.display = isAdmin() ? 'inline-flex' : 'none';
   }
 
   // ================= SOCKET.IO =================
@@ -166,6 +167,14 @@
       if (selectedGangId === id) selectedGangId = state.gangs[0]?.id || null;
       render();
       toast('Un gang a été supprimé.');
+    });
+
+    socket.on('gangs:bulk_update', ({ gangs, by, mode }) => {
+      state.gangs = gangs;
+      if (!getGang(selectedGangId)) selectedGangId = state.gangs[0]?.id || null;
+      render();
+      const modeLabel = mode === 'replace' ? 'remplacement' : 'fusion';
+      toast(`Import (${modeLabel}) effectué par ${by} — données mises à jour.`);
     });
   }
 
@@ -732,6 +741,178 @@
       await loadUsersList();
     } catch (err) {
       toast(err.message, true);
+    }
+  });
+
+  // ================= IMPORT JSON =================
+
+  let importParsedPayload = null; // contenu JSON.parse du fichier selectionne
+  let importFileName = '';
+
+  function countPayload(payload) {
+    const gangs = Array.isArray(payload.gangs) ? payload.gangs : [];
+    let categories = 0;
+    let items = 0;
+    gangs.forEach((g) => {
+      const cats = Array.isArray(g.categories) ? g.categories : [];
+      categories += cats.length;
+      cats.forEach((c) => {
+        items += Array.isArray(c.items) ? c.items.length : 0;
+      });
+    });
+    const users = Array.isArray(payload.users) ? payload.users.length : 0;
+    return { gangs: gangs.length, categories, items, users };
+  }
+
+  function resetImportModal() {
+    importParsedPayload = null;
+    importFileName = '';
+    document.getElementById('importPreview').innerHTML = '';
+    document.getElementById('importModeChoice').style.display = 'none';
+    document.getElementById('importReplaceConfirm').style.display = 'none';
+    document.getElementById('importReplaceConfirmInput').value = '';
+    document.getElementById('importResult').innerHTML = '';
+    document.getElementById('importActions').style.display = 'none';
+    document.getElementById('importConfirmBtn').disabled = true;
+    document.getElementById('importFileInput').value = '';
+    const mergeRadio = document.querySelector('input[name="importMode"][value="merge"]');
+    if (mergeRadio) mergeRadio.checked = true;
+  }
+
+  function updateImportConfirmState() {
+    const mode = document.querySelector('input[name="importMode"]:checked')?.value || 'merge';
+    const replaceConfirmBox = document.getElementById('importReplaceConfirm');
+    const confirmInput = document.getElementById('importReplaceConfirmInput');
+    const confirmBtn = document.getElementById('importConfirmBtn');
+
+    replaceConfirmBox.style.display = mode === 'replace' ? 'block' : 'none';
+
+    if (!importParsedPayload) {
+      confirmBtn.disabled = true;
+      return;
+    }
+    if (mode === 'replace') {
+      confirmBtn.disabled = confirmInput.value.trim() !== 'SUPPRIMER';
+    } else {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  document.getElementById('importBtn').addEventListener('click', () => {
+    resetImportModal();
+    document.getElementById('importModal').style.display = 'flex';
+  });
+
+  document.getElementById('closeImportModal').addEventListener('click', () => {
+    document.getElementById('importModal').style.display = 'none';
+  });
+  document.getElementById('importCancelBtn').addEventListener('click', () => {
+    document.getElementById('importModal').style.display = 'none';
+  });
+
+  document.getElementById('importFileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    importFileName = file.name;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const preview = document.getElementById('importPreview');
+      const resultBox = document.getElementById('importResult');
+      resultBox.innerHTML = '';
+
+      let parsed;
+      try {
+        parsed = JSON.parse(evt.target.result);
+      } catch (err) {
+        importParsedPayload = null;
+        preview.innerHTML = `<div class="import-error-list"><b>Fichier JSON invalide.</b><br>${escapeHtml(err.message)}</div>`;
+        document.getElementById('importModeChoice').style.display = 'none';
+        document.getElementById('importActions').style.display = 'none';
+        return;
+      }
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.gangs === undefined) {
+        importParsedPayload = null;
+        preview.innerHTML = `<div class="import-error-list"><b>Format inattendu.</b><br>Le fichier doit contenir un objet JSON avec au moins une clé "gangs" (le format produit par "Exporter JSON" convient).</div>`;
+        document.getElementById('importModeChoice').style.display = 'none';
+        document.getElementById('importActions').style.display = 'none';
+        return;
+      }
+
+      importParsedPayload = parsed;
+      const counts = countPayload(parsed);
+      preview.innerHTML = `
+        <div class="import-preview-box">
+          <div class="file-name">${escapeHtml(importFileName)}</div>
+          ${counts.gangs} gang(s) · ${counts.categories} catégorie(s) · ${counts.items} item(s)${counts.users ? ` · ${counts.users} utilisateur(s)` : ''}
+        </div>`;
+      document.getElementById('importModeChoice').style.display = 'flex';
+      document.getElementById('importActions').style.display = 'flex';
+      updateImportConfirmState();
+    };
+    reader.onerror = () => {
+      toast('Impossible de lire ce fichier.', true);
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('importModal').addEventListener('change', (e) => {
+    if (e.target.name === 'importMode' || e.target.id === 'importReplaceConfirmInput') {
+      updateImportConfirmState();
+    }
+  });
+  document.getElementById('importReplaceConfirmInput').addEventListener('input', updateImportConfirmState);
+
+  document.getElementById('importConfirmBtn').addEventListener('click', async () => {
+    if (!importParsedPayload) return;
+    const mode = document.querySelector('input[name="importMode"]:checked')?.value || 'merge';
+    const confirmBtn = document.getElementById('importConfirmBtn');
+    const resultBox = document.getElementById('importResult');
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Import en cours...';
+    resultBox.innerHTML = '';
+
+    try {
+      const res = await Api.post('/import', {
+        mode,
+        confirmReplace: mode === 'replace',
+        payload: importParsedPayload,
+      });
+
+      const s = res.summary;
+      let html = `<div class="import-success-box">
+        <b>${escapeHtml(res.message)}</b><br>
+        ${s.gangsCreated} gang(s) créé(s), ${s.gangsUpdated} mis à jour<br>
+        ${s.categoriesCreated} catégorie(s) créée(s), ${s.categoriesUpdated} mise(s) à jour<br>
+        ${s.itemsCreated} item(s) créé(s), ${s.itemsUpdated} mis à jour`;
+      if (s.usersCreated || s.usersSkipped) {
+        html += `<br>${s.usersCreated} utilisateur(s) créé(s), ${s.usersSkipped} ignoré(s)`;
+      }
+      html += `</div>`;
+      if (s.warnings && s.warnings.length) {
+        html += `<div class="import-warnings">${s.warnings.map((w) => escapeHtml(w)).join('<br>')}</div>`;
+      }
+      resultBox.innerHTML = html;
+
+      document.getElementById('importModeChoice').style.display = 'none';
+      document.getElementById('importActions').style.display = 'none';
+      document.getElementById('importPreview').innerHTML = '';
+
+      await loadGangs();
+      render();
+    } catch (err) {
+      let html = `<div class="import-error-list"><b>${escapeHtml(err.message)}</b>`;
+      if (err.details && Array.isArray(err.details)) {
+        html += `<ul>${err.details.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`;
+      }
+      html += `</div>`;
+      resultBox.innerHTML = html;
+      confirmBtn.disabled = false;
+    } finally {
+      confirmBtn.textContent = 'Importer';
+      updateImportConfirmState();
     }
   });
 

@@ -70,6 +70,8 @@
       </select>
       <div class="spacer"></div>
       <button class="btn ghost small" id="exportBtn">⤓ Exporter JSON</button>
+      <button class="btn ghost small" id="importBtn" style="display:none;">⤒ Importer JSON</button>
+      <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;">
     </div>
     <div class="content" id="content"></div>
   </main>
@@ -105,6 +107,49 @@
         <button type="submit" class="btn small">+ Créer</button>
       </form>
       <div id="usersListBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODALE IMPORT JSON ================= -->
+<div class="modal-backdrop" id="importModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Importer des données</h2>
+      <button class="icon-btn" id="closeImportModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="importPreview"></div>
+
+      <div class="import-mode-choice" id="importModeChoice" style="display:none;">
+        <label class="import-mode-option">
+          <input type="radio" name="importMode" value="merge" checked>
+          <div>
+            <div class="import-mode-title">Fusionner avec les données existantes</div>
+            <div class="import-mode-desc">Les gangs/catégories/items déjà présents (même nom) sont mis à jour ; le reste est ajouté. Aucune suppression.</div>
+          </div>
+        </label>
+        <label class="import-mode-option danger">
+          <input type="radio" name="importMode" value="replace">
+          <div>
+            <div class="import-mode-title">Remplacer toutes les données existantes</div>
+            <div class="import-mode-desc">Supprime tous les gangs/catégories/items actuels avant d'importer le fichier. Les comptes utilisateurs ne sont jamais supprimés. Une sauvegarde automatique est prise avant suppression.</div>
+          </div>
+        </label>
+      </div>
+
+      <div id="importReplaceConfirm" class="import-replace-confirm" style="display:none;">
+        <p>Cette action va <b>supprimer définitivement</b> tous les gangs, catégories et items actuellement enregistrés, avant d'importer le fichier. Cette action est irréversible depuis l'application (une sauvegarde JSON est prise automatiquement côté serveur).</p>
+        <p>Tapez <b>SUPPRIMER</b> ci-dessous pour confirmer :</p>
+        <input type="text" id="importReplaceConfirmInput" placeholder="SUPPRIMER" autocomplete="off">
+      </div>
+
+      <div id="importResult"></div>
+
+      <div class="import-actions" id="importActions" style="display:none;">
+        <button class="btn ghost small" id="importCancelBtn">Annuler</button>
+        <button class="btn small" id="importConfirmBtn" disabled>Importer</button>
+      </div>
     </div>
   </div>
 </div>

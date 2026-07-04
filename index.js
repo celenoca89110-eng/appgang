@@ -12,6 +12,7 @@ const { ensureAdmin } = require('./db/seed');
 const authRoutes = require('./routes/auth');
 const { router: gangsRoutes } = require('./routes/gangs');
 const miscRoutes = require('./routes/misc');
+const importRoutes = require('./routes/import');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -28,19 +29,29 @@ const io = new Server(server, { cors: { origin: '*' } });
 app.set('io', io); // rend io accessible depuis les routes via req.app.get('io')
 
 app.use(cors());
-app.use(express.json());
+// Limite relevee (defaut Express: 100kb) pour supporter des fichiers d'import/export
+// de registres de gangs volumineux, sans ouvrir la porte a des payloads demesures.
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ---------- ROUTES API ----------
 app.use('/api/auth', authRoutes);
 app.use('/api/gangs', gangsRoutes);
 app.use('/api', miscRoutes);
+app.use('/api', importRoutes);
 
 // Sante de l'API
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
-// Gestionnaire d'erreurs centralise pour les routes async (next(err))
+// Gestionnaire d'erreurs centralise pour les routes async (next(err)) et les
+// erreurs de parsing du corps de requete (JSON malforme, payload trop lourd)
 app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Corps de requête JSON invalide (fichier malformé ?).' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Fichier trop volumineux (limite : 5 Mo).' });
+  }
   console.error('[api] Erreur non gérée :', err);
   res.status(500).json({ error: 'Erreur interne du serveur.' });
 });

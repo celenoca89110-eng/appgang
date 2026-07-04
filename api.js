@@ -32,6 +32,7 @@ const Api = (() => {
       const message = (data && data.error) || `Erreur ${res.status}`;
       const err = new Error(message);
       err.status = res.status;
+      if (data && data.details) err.details = data.details;
       throw err;
     }
     return data;

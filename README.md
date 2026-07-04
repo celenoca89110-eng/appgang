@@ -268,8 +268,82 @@ Toutes les routes (sauf `/api/auth/login`) nécessitent un header :
 |---|---|---|---|
 | GET | `/api/search?q=terme` | connecté | Recherche server-side (`ILIKE`, insensible à la casse) sur nom/description des items, tous gangs confondus |
 | GET | `/api/export` | connecté | Export JSON complet de la base |
+| POST | `/api/import` | admin | Import JSON (fusion ou remplacement) — voir section dédiée ci-dessous |
 | GET | `/api/audit-log?limit=200` | admin, staff | Historique des modifications |
 | GET | `/api/health` | public | Vérification que le serveur tourne |
+
+## Import JSON
+
+Accessible depuis l'interface (bouton **⤒ Importer JSON**, visible uniquement pour
+les comptes `admin`), ou directement via `POST /api/import`.
+
+### Format attendu
+
+Le même format que celui produit par **Exporter JSON** :
+
+```json
+{
+  "gangs": [
+    {
+      "name": "Serpents Écarlates",
+      "color": "#D9A63E",
+      "categories": [
+        {
+          "name": "Armes à feu",
+          "items": [
+            { "name": "Pistolet 9mm", "price": 1200, "description": "Standard" }
+          ]
+        }
+      ]
+    }
+  ],
+  "users": [
+    { "username": "nouveau_staff", "password": "motdepasse123", "role": "staff" }
+  ]
+}
+```
+
+La clé `gangs` est requise (peut être un tableau vide). La clé `users` est
+facultative. Pour les utilisateurs, fournissez soit `password` (nouveau mot de
+passe en clair, transformé en hash bcrypt côté serveur), soit `password_hash`
+(si vous réinjectez un hash déjà bcrypt issu d'un export existant).
+
+### Deux modes
+
+- **Fusionner avec les données existantes** (par défaut) : les gangs/catégories/items
+  déjà présents (rapprochés par **nom**) sont mis à jour ; le reste est ajouté.
+  Aucune suppression. Idempotent : importer deux fois le même fichier ne crée
+  pas de doublons, ça met juste à jour les mêmes lignes.
+- **Remplacer toutes les données existantes** : supprime tous les gangs (et par
+  cascade leurs catégories/items) avant d'importer le fichier. **Les comptes
+  utilisateurs ne sont jamais supprimés par ce mode**, par sécurité — pour ne
+  jamais risquer de vous verrouiller hors de votre propre application.
+
+Dans les deux modes, **un utilisateur existant (même `username`) n'est jamais
+modifié par l'import** (ni mot de passe, ni rôle) : seuls les nouveaux comptes
+sont créés. C'est volontaire, pour qu'un fichier JSON externe ne puisse jamais
+écraser silencieusement un mot de passe ou élever un rôle.
+
+### Garanties de sécurité et d'intégrité
+
+- **Validation complète avant toute écriture** : le fichier entier est vérifié
+  (structure, types, champs requis) avant que la moindre requête SQL ne soit
+  exécutée. Si une seule ligne est invalide, l'import entier est rejeté avec la
+  liste complète des problèmes détectés — aucune écriture partielle possible.
+- **Transaction unique** : toute l'opération (suppression éventuelle +
+  insertion/mise à jour) s'exécute dans une seule transaction PostgreSQL. En
+  cas d'erreur inattendue en cours de route, `ROLLBACK` complet.
+- **Confirmation explicite pour le remplacement** : le mode "Remplacer" exige
+  `confirmReplace: true` côté API, et côté interface une saisie manuelle du mot
+  **SUPPRIMER** avant que le bouton d'import ne s'active — double garde-fou.
+- **Sauvegarde automatique avant suppression** : juste avant d'exécuter un
+  remplacement, une sauvegarde JSON complète de l'état actuel est créée dans
+  `data/backups/` (voir aussi la *Politique de non-perte de données* plus haut).
+- **Route réservée aux admins** (`requireRole('admin')`), car le mode
+  remplacement peut supprimer des données.
+- **Synchronisation temps réel** : après un import réussi, tous les clients
+  connectés reçoivent l'état à jour via Socket.io (`gangs:bulk_update`), sans
+  recharger la page.
 
 ## Temps réel (Socket.io)
 
@@ -329,10 +403,14 @@ gangapp/
 │   │   └── importFromSqlite.js # import ponctuel depuis l'ancienne base SQLite
 │   ├── middleware/
 │   │   └── auth.js            # vérification JWT + contrôle des rôles
+│   ├── services/
+│   │   ├── importValidator.js # validation complète d'un fichier d'import avant écriture
+│   │   └── importService.js   # logique de fusion/remplacement (upsert par nom)
 │   └── routes/
 │       ├── auth.js            # login, gestion des utilisateurs
 │       ├── gangs.js           # CRUD gangs/catégories/items
-│       └── misc.js            # recherche, export, audit log
+│       ├── misc.js            # recherche, export, audit log
+│       └── import.js          # import JSON (fusion / remplacement)
 └── public/                    # frontend statique servi par Express
     ├── index.html
     ├── css/style.css

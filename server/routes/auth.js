@@ -2,11 +2,13 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
+
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAction } = require('../db/auditLog');
 
 const router = express.Router();
+
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
 
@@ -18,63 +20,74 @@ function signToken(user) {
   );
 }
 
+//
 // LOGIN
+//
 router.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
+  const { username, password } = req.body || {};
 
-    const result = await db.query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    );
-
-    const user = result.rows[0];
-
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-      return res.status(401).json({ error: 'Identifiants incorrects.' });
-    }
-
-    const token = signToken(user);
-
-    logAction(
-      { id: user.id, username: user.username },
-      'login',
-      'auth',
-      user.id,
-      user.username
-    );
-
-    res.json({
-      token,
-      user: { id: user.id, username: user.username, role: user.role }
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username et password requis.' });
   }
+
+  const result = await db.query(
+    'SELECT * FROM users WHERE username = $1',
+    [username]
+  );
+
+  const user = result.rows[0];
+
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Identifiants incorrects.' });
+  }
+
+  const token = signToken(user);
+
+  logAction(
+    { id: user.id, username: user.username },
+    'login',
+    'auth',
+    user.id,
+    user.username
+  );
+
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    }
+  });
 });
 
+//
 // ME
+//
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-// USERS LIST
+//
+// LIST USERS (ADMIN)
+//
 router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const result = await db.query(
     'SELECT id, username, role, created_at FROM users ORDER BY created_at ASC'
   );
+
   res.json(result.rows);
 });
 
-// CREATE USER
+//
+// CREATE USER (ADMIN)
+//
 router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { username, password, role } = req.body || {};
   const validRoles = ['admin', 'staff', 'viewer'];
 
   if (!username || !password) {
-    return res.status(400).json({ error: 'Nom d\'utilisateur et mot de passe requis.' });
+    return res.status(400).json({ error: 'Username et password requis.' });
   }
 
   if (password.length < 6) {
@@ -91,7 +104,7 @@ router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   );
 
   if (existing.rows.length > 0) {
-    return res.status(409).json({ error: 'Utilisateur existe deja.' });
+    return res.status(409).json({ error: 'Utilisateur existe déjà.' });
   }
 
   const id = uuid();
@@ -109,26 +122,34 @@ router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   res.status(201).json({ id, username, role: finalRole });
 });
 
+//
 // UPDATE USER
+//
 router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { role, password } = req.body || {};
   const validRoles = ['admin', 'staff', 'viewer'];
 
-  const userResult = await db.query(
+  const userRes = await db.query(
     'SELECT * FROM users WHERE id = $1',
     [id]
   );
 
-  const user = userResult.rows[0];
-  if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
+  const user = userRes.rows[0];
+
+  if (!user) {
+    return res.status(404).json({ error: 'Utilisateur introuvable.' });
+  }
 
   if (role && !validRoles.includes(role)) {
     return res.status(400).json({ error: 'Role invalide.' });
   }
 
   if (role) {
-    await db.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+    await db.query(
+      'UPDATE users SET role = $1 WHERE id = $2',
+      [role, id]
+    );
   }
 
   if (password) {
@@ -137,15 +158,21 @@ router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => 
     }
 
     const hash = bcrypt.hashSync(password, 10);
-    await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+
+    await db.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [hash, id]
+    );
   }
 
   logAction(req.user, 'update', 'user', id, user.username, { role });
 
-  res.json({ message: 'Utilisateur mis a jour.' });
+  res.json({ message: 'Utilisateur mis à jour.' });
 });
 
+//
 // DELETE USER
+//
 router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
 
@@ -153,19 +180,25 @@ router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) 
     return res.status(400).json({ error: 'Impossible de supprimer votre compte.' });
   }
 
-  const userResult = await db.query(
+  const userRes = await db.query(
     'SELECT * FROM users WHERE id = $1',
     [id]
   );
 
-  const user = userResult.rows[0];
-  if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
+  const user = userRes.rows[0];
 
-  await db.query('DELETE FROM users WHERE id = $1', [id]);
+  if (!user) {
+    return res.status(404).json({ error: 'Utilisateur introuvable.' });
+  }
+
+  await db.query(
+    'DELETE FROM users WHERE id = $1',
+    [id]
+  );
 
   logAction(req.user, 'delete', 'user', id, user.username);
 
-  res.json({ message: 'Utilisateur supprime.' });
+  res.json({ message: 'Utilisateur supprimé.' });
 });
 
 module.exports = router;

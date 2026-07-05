@@ -6,46 +6,83 @@ const { getRecentLogs } = require('../db/auditLog');
 
 const router = express.Router();
 
-// GET /api/search?q=terme - recherche globale server-side sur les items
-router.get('/search', requireAuth, (req, res) => {
+// ================= SEARCH (FIX POSTGRES) =================
+// GET /api/search?q=terme
+router.get('/search', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json([]);
 
   const like = `%${q}%`;
-  const rows = db
-    .prepare(
+
+  try {
+    const result = await db.query(
       `
-    SELECT
-      items.id AS item_id, items.name AS item_name, items.price, items.description,
-      categories.id AS category_id, categories.name AS category_name,
-      gangs.id AS gang_id, gangs.name AS gang_name
-    FROM items
-    JOIN categories ON categories.id = items.category_id
-    JOIN gangs ON gangs.id = categories.gang_id
-    WHERE items.name LIKE ? OR items.description LIKE ?
-    ORDER BY gangs.name, categories.name, items.name
-  `
-    )
-    .all(like, like);
+      SELECT
+        items.id AS item_id,
+        items.name AS item_name,
+        items.price,
+        items.description,
+        categories.id AS category_id,
+        categories.name AS category_name,
+        gangs.id AS gang_id,
+        gangs.name AS gang_name
+      FROM items
+      JOIN categories ON categories.id = items.category_id
+      JOIN gangs ON gangs.id = categories.gang_id
+      WHERE items.name ILIKE $1
+         OR items.description ILIKE $1
+      ORDER BY gangs.name, categories.name, items.name
+      `,
+      [like]
+    );
 
-  res.json(rows);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[SEARCH ERROR]', err);
+    res.status(500).json({ error: 'Erreur recherche' });
+  }
 });
 
-// GET /api/export - export JSON complet de la base (gangs/categories/items)
-router.get('/export', requireAuth, (req, res) => {
-  const data = {
-    exported_at: new Date().toISOString(),
-    exported_by: req.user.username,
-    gangs: getAllGangsFull(),
-  };
-  res.setHeader('Content-Disposition', 'attachment; filename="gangs-export.json"');
-  res.json(data);
+
+// ================= EXPORT JSON =================
+// GET /api/export
+router.get('/export', requireAuth, async (req, res) => {
+  try {
+    const data = {
+      exported_at: new Date().toISOString(),
+      exported_by: req.user.username,
+      gangs: await getAllGangsFull(),
+    };
+
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="gangs-export.json"'
+    );
+
+    res.json(data);
+  } catch (err) {
+    console.error('[EXPORT ERROR]', err);
+    res.status(500).json({ error: 'Erreur export' });
+  }
 });
 
-// GET /api/audit-log - historique des modifications (admin + staff)
-router.get('/audit-log', requireAuth, requireRole('admin', 'staff'), (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 200, 1000);
-  res.json(getRecentLogs(limit));
-});
+
+// ================= AUDIT LOG =================
+// GET /api/audit-log
+router.get(
+  '/audit-log',
+  requireAuth,
+  requireRole('admin', 'staff'),
+  async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 200, 1000);
+      const logs = await getRecentLogs(limit);
+      res.json(logs);
+    } catch (err) {
+      console.error('[AUDIT ERROR]', err);
+      res.status(500).json({ error: 'Erreur logs' });
+    }
+  }
+);
 
 module.exports = router;

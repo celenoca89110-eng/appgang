@@ -19,7 +19,10 @@ async function ensureAdmin() {
         'admin'
       ]
     );
+
+    console.log("👑 Admin créé");
   }
 }
 
-ensureAdmin();
+// ✅ IMPORTANT : on exporte la fonction
+module.exports = ensureAdmin;

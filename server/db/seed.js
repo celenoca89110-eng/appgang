@@ -1,25 +1,25 @@
-require('dotenv').config();
-const bcrypt = require('bcryptjs');
-const { v4: uuid } = require('uuid');
-const db = require('./database');
+const db = require('./database'); // pool postgres
 
-function ensureAdmin() {
-  const username = process.env.ADMIN_USERNAME || 'admin';
-  const password = process.env.ADMIN_PASSWORD || 'changeMoi123!';
+async function ensureAdmin() {
+  const username = 'admin';
 
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-  if (existing) {
-    console.log(`[seed] Le compte admin "${username}" existe deja.`);
-    return;
+  const result = await db.query(
+    'SELECT id FROM users WHERE username = $1',
+    [username]
+  );
+
+  if (result.rows.length === 0) {
+    await db.query(
+      `INSERT INTO users (id, username, password_hash, role)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        'admin-id',
+        'admin',
+        'admin',
+        'admin'
+      ]
+    );
   }
-
-  const hash = bcrypt.hashSync(password, 10);
-  const id = uuid();
-  db.prepare(
-    'INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)'
-  ).run(id, username, hash, 'admin');
-
-  console.log(`[seed] Compte admin cree : "${username}" (mot de passe defini dans .env)`);
 }
 
 ensureAdmin();

@@ -146,17 +146,32 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 
 // ================= CATEGORIES =================
 
+// CREATE CATEGORY
 router.post('/:gangId/categories', requireAuth, requireRole('admin', 'staff'), async (req, res) => {
   const { gangId } = req.params;
   const { name } = req.body || {};
 
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Le nom de la categorie est requis.' });
+  }
+
   const gangRes = await db.query('SELECT * FROM gangs WHERE id = $1', [gangId]);
-  if (!gangRes.rows[0]) return res.status(404).json({ error: 'Gang introuvable.' });
+  const gang = gangRes.rows[0];
+  if (!gang) return res.status(404).json({ error: 'Gang introuvable.' });
+
+  const dupe = await db.query(
+    'SELECT id FROM categories WHERE gang_id = $1 AND name = $2',
+    [gangId, name.trim()]
+  );
+
+  if (dupe.rows.length > 0) {
+    return res.status(409).json({ error: 'Cette categorie existe deja.' });
+  }
 
   const id = uuid();
 
   await db.query(
-    'INSERT INTO categories (id, gang_id, name) VALUES ($1,$2,$3)',
+    'INSERT INTO categories (id, gang_id, name) VALUES ($1, $2, $3)',
     [id, gangId, name.trim()]
   );
 
@@ -166,6 +181,66 @@ router.post('/:gangId/categories', requireAuth, requireRole('admin', 'staff'), a
   emitUpdate(req, 'gang:updated', updated);
 
   res.status(201).json(updated);
+});
+
+
+// UPDATE CATEGORY
+router.put('/:gangId/categories/:catId', requireAuth, requireRole('admin', 'staff'), async (req, res) => {
+  const { gangId, catId } = req.params;
+  const { name } = req.body || {};
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Le nom de la categorie est requis.' });
+  }
+
+  const catRes = await db.query(
+    'SELECT * FROM categories WHERE id = $1 AND gang_id = $2',
+    [catId, gangId]
+  );
+
+  const cat = catRes.rows[0];
+  if (!cat) return res.status(404).json({ error: 'Categorie introuvable.' });
+
+  await db.query(
+    'UPDATE categories SET name = $1 WHERE id = $2',
+    [name.trim(), catId]
+  );
+
+  await touchGang(gangId);
+
+  const updated = await getFullGang(gangId);
+  emitUpdate(req, 'gang:updated', updated);
+
+  res.json(updated);
+});
+
+
+// DELETE CATEGORY (FIX 404)
+router.delete('/:gangId/categories/:catId', requireAuth, requireRole('admin', 'staff'), async (req, res) => {
+  const { gangId, catId } = req.params;
+
+  const catRes = await db.query(
+    'SELECT * FROM categories WHERE id = $1 AND gang_id = $2',
+    [catId, gangId]
+  );
+
+  const category = catRes.rows[0];
+  if (!category) {
+    return res.status(404).json({ error: 'Categorie introuvable.' });
+  }
+
+  // supprimer items liés (sécurité propre)
+  await db.query('DELETE FROM items WHERE category_id = $1', [catId]);
+
+  // supprimer catégorie
+  await db.query('DELETE FROM categories WHERE id = $1', [catId]);
+
+  await touchGang(gangId);
+
+  const updated = await getFullGang(gangId);
+  emitUpdate(req, 'gang:updated', updated);
+
+  res.json({ message: 'Categorie supprimee.' });
 });
 
 // ================= ITEMS =================

@@ -18,69 +18,90 @@ function signToken(user) {
   );
 }
 
-// POST /api/auth/login
-router.post('/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Nom d\'utilisateur et mot de passe requis.' });
+// LOGIN
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+
+    const result = await db.query(
+      'SELECT * FROM users WHERE username = $1',
+      [username]
+    );
+
+    const user = result.rows[0];
+
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Identifiants incorrects.' });
+    }
+
+    const token = signToken(user);
+
+    logAction(
+      { id: user.id, username: user.username },
+      'login',
+      'auth',
+      user.id,
+      user.username
+    );
+
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, role: user.role }
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
-
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Identifiants incorrects.' });
-  }
-
-  const token = signToken(user);
-  logAction({ id: user.id, username: user.username }, 'login', 'auth', user.id, user.username);
-
-  res.json({
-    token,
-    user: { id: user.id, username: user.username, role: user.role },
-  });
 });
 
-// GET /api/auth/me - infos sur l'utilisateur connecte
+// ME
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-// GET /api/auth/users - liste des comptes (admin uniquement)
-router.get('/users', requireAuth, requireRole('admin'), (req, res) => {
-  const users = db
-    .prepare('SELECT id, username, role, created_at FROM users ORDER BY created_at ASC')
-    .all();
-  res.json(users);
+// USERS LIST
+router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
+  const result = await db.query(
+    'SELECT id, username, role, created_at FROM users ORDER BY created_at ASC'
+  );
+  res.json(result.rows);
 });
 
-// POST /api/auth/users - creer un compte (admin uniquement)
-router.post('/users', requireAuth, requireRole('admin'), (req, res) => {
+// CREATE USER
+router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { username, password, role } = req.body || {};
   const validRoles = ['admin', 'staff', 'viewer'];
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Nom d\'utilisateur et mot de passe requis.' });
   }
+
   if (password.length < 6) {
-    return res.status(400).json({ error: 'Le mot de passe doit faire au moins 6 caracteres.' });
-  }
-  if (role && !validRoles.includes(role)) {
-    return res.status(400).json({ error: `Role invalide. Valeurs possibles: ${validRoles.join(', ')}.` });
+    return res.status(400).json({ error: 'Mot de passe trop court.' });
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-  if (existing) {
-    return res.status(409).json({ error: 'Ce nom d\'utilisateur existe deja.' });
+  if (role && !validRoles.includes(role)) {
+    return res.status(400).json({ error: 'Role invalide.' });
+  }
+
+  const existing = await db.query(
+    'SELECT id FROM users WHERE username = $1',
+    [username]
+  );
+
+  if (existing.rows.length > 0) {
+    return res.status(409).json({ error: 'Utilisateur existe deja.' });
   }
 
   const id = uuid();
   const hash = bcrypt.hashSync(password, 10);
   const finalRole = role || 'viewer';
 
-  db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
-    id,
-    username,
-    hash,
-    finalRole
+  await db.query(
+    `INSERT INTO users (id, username, password_hash, role)
+     VALUES ($1, $2, $3, $4)`,
+    [id, username, hash, finalRole]
   );
 
   logAction(req.user, 'create', 'user', id, username, { role: finalRole });
@@ -88,44 +109,60 @@ router.post('/users', requireAuth, requireRole('admin'), (req, res) => {
   res.status(201).json({ id, username, role: finalRole });
 });
 
-// PUT /api/auth/users/:id - modifier le role ou le mot de passe (admin uniquement)
-router.put('/users/:id', requireAuth, requireRole('admin'), (req, res) => {
+// UPDATE USER
+router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { role, password } = req.body || {};
   const validRoles = ['admin', 'staff', 'viewer'];
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const userResult = await db.query(
+    'SELECT * FROM users WHERE id = $1',
+    [id]
+  );
+
+  const user = userResult.rows[0];
   if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
 
   if (role && !validRoles.includes(role)) {
-    return res.status(400).json({ error: `Role invalide. Valeurs possibles: ${validRoles.join(', ')}.` });
+    return res.status(400).json({ error: 'Role invalide.' });
   }
 
   if (role) {
-    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+    await db.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
   }
+
   if (password) {
     if (password.length < 6) {
-      return res.status(400).json({ error: 'Le mot de passe doit faire au moins 6 caracteres.' });
+      return res.status(400).json({ error: 'Mot de passe trop court.' });
     }
+
     const hash = bcrypt.hashSync(password, 10);
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+    await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
   }
 
   logAction(req.user, 'update', 'user', id, user.username, { role });
+
   res.json({ message: 'Utilisateur mis a jour.' });
 });
 
-// DELETE /api/auth/users/:id (admin uniquement)
-router.delete('/users/:id', requireAuth, requireRole('admin'), (req, res) => {
+// DELETE USER
+router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
+
   if (id === req.user.id) {
-    return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+    return res.status(400).json({ error: 'Impossible de supprimer votre compte.' });
   }
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+
+  const userResult = await db.query(
+    'SELECT * FROM users WHERE id = $1',
+    [id]
+  );
+
+  const user = userResult.rows[0];
   if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
 
-  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  await db.query('DELETE FROM users WHERE id = $1', [id]);
+
   logAction(req.user, 'delete', 'user', id, user.username);
 
   res.json({ message: 'Utilisateur supprime.' });

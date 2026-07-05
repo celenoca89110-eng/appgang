@@ -243,25 +243,144 @@ router.delete('/:gangId/categories/:catId', requireAuth, requireRole('admin', 's
   res.json({ message: 'Categorie supprimee.' });
 });
 
-// ================= ITEMS =================
+ // ================= ITEMS =================
 
-router.post('/:gangId/categories/:catId/items', requireAuth, requireRole('admin', 'staff'), async (req, res) => {
-  const { catId, gangId } = req.params;
-  const { name, price, description } = req.body || {};
+// CREATE ITEM
+router.post(
+  '/:gangId/categories/:catId/items',
+  requireAuth,
+  requireRole('admin', 'staff'),
+  async (req, res) => {
+    const { gangId, catId } = req.params;
+    const { name, price, description } = req.body || {};
 
-  const id = uuid();
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Le nom de l item est requis.' });
+    }
 
-  await db.query(
-    'INSERT INTO items (id, category_id, name, price, description) VALUES ($1,$2,$3,$4,$5)',
-    [id, catId, name.trim(), Number(price), description || '']
-  );
+    if (price === undefined || isNaN(Number(price)) || Number(price) < 0) {
+      return res.status(400).json({ error: 'Prix invalide.' });
+    }
 
-  await touchGang(gangId);
+    // check category
+    const catRes = await db.query(
+      'SELECT * FROM categories WHERE id = $1 AND gang_id = $2',
+      [catId, gangId]
+    );
 
-  const updated = await getFullGang(gangId);
-  emitUpdate(req, 'gang:updated', updated);
+    if (!catRes.rows[0]) {
+      return res.status(404).json({ error: 'Categorie introuvable.' });
+    }
 
-  res.status(201).json(updated);
-});
+    const id = uuid();
 
-module.exports = { router, getAllGangsFull, getFullGang };
+    await db.query(
+      `INSERT INTO items (id, category_id, name, price, description)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [id, catId, name.trim(), Number(price), description?.trim() || '']
+    );
+
+    await touchGang(gangId);
+
+    const updated = await getFullGang(gangId);
+    emitUpdate(req, 'gang:updated', updated);
+
+    res.status(201).json(updated);
+  }
+);
+
+
+// UPDATE ITEM (FIX 404 MODIF DESCRIPTION)
+router.put(
+  '/:gangId/categories/:catId/items/:itemId',
+  requireAuth,
+  requireRole('admin', 'staff'),
+  async (req, res) => {
+    const { gangId, catId, itemId } = req.params;
+    const { name, price, description } = req.body || {};
+
+    // check category
+    const catRes = await db.query(
+      'SELECT * FROM categories WHERE id = $1 AND gang_id = $2',
+      [catId, gangId]
+    );
+
+    if (!catRes.rows[0]) {
+      return res.status(404).json({ error: 'Categorie introuvable.' });
+    }
+
+    // check item
+    const itemRes = await db.query(
+      'SELECT * FROM items WHERE id = $1 AND category_id = $2',
+      [itemId, catId]
+    );
+
+    const item = itemRes.rows[0];
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item introuvable.' });
+    }
+
+    const newName = name?.trim() || item.name;
+    const newPrice = price !== undefined ? Number(price) : item.price;
+    const newDesc = description !== undefined ? description : item.description;
+
+    await db.query(
+      `UPDATE items
+       SET name = $1,
+           price = $2,
+           description = $3
+       WHERE id = $4`,
+      [newName, newPrice, newDesc, itemId]
+    );
+
+    await touchGang(gangId);
+
+    const updated = await getFullGang(gangId);
+    emitUpdate(req, 'gang:updated', updated);
+
+    res.json(updated);
+  }
+);
+
+
+// DELETE ITEM
+router.delete(
+  '/:gangId/categories/:catId/items/:itemId',
+  requireAuth,
+  requireRole('admin', 'staff'),
+  async (req, res) => {
+    const { gangId, catId, itemId } = req.params;
+
+    // check category
+    const catRes = await db.query(
+      'SELECT * FROM categories WHERE id = $1 AND gang_id = $2',
+      [catId, gangId]
+    );
+
+    if (!catRes.rows[0]) {
+      return res.status(404).json({ error: 'Categorie introuvable.' });
+    }
+
+    // check item
+    const itemRes = await db.query(
+      'SELECT * FROM items WHERE id = $1 AND category_id = $2',
+      [itemId, catId]
+    );
+
+    const item = itemRes.rows[0];
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item introuvable.' });
+    }
+
+    await db.query('DELETE FROM items WHERE id = $1', [itemId]);
+
+    await touchGang(gangId);
+
+    const updated = await getFullGang(gangId);
+    emitUpdate(req, 'gang:updated', updated);
+
+    res.json({ message: 'Item supprime.' });
+  }
+);

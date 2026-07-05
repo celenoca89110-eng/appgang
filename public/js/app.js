@@ -426,11 +426,12 @@
     }
   });
 
-  // ================= EVENTS: delegated clicks =================
+   // ================= EVENTS: delegated clicks =================
 
   document.body.addEventListener('click', async (e) => {
     const gangCard = e.target.closest('[data-gang]');
     const removeGangBtn = e.target.closest('[data-remove-gang]');
+    const editGangBtn = e.target.closest('[data-edit-gang]'); // ⭐ AJOUT
     const removeCatBtn = e.target.closest('[data-remove-cat]');
     const removeItemBtn = e.target.closest('[data-remove-item]');
     const editItemBtn = e.target.closest('[data-edit-item-btn]');
@@ -439,6 +440,29 @@
     const addCatBtn = e.target.closest('#addCatBtn');
 
     try {
+
+      // ================= EDIT GANG NAME =================
+      if (editGangBtn) {
+        e.stopPropagation();
+
+        const id = editGangBtn.getAttribute('data-edit-gang');
+        const g = getGang(id);
+
+        if (!g) return;
+
+        const newName = prompt('Nouveau nom du gang :', g.name);
+        if (!newName || !newName.trim()) return;
+
+        await Api.put(`/gangs/${id}`, {
+          name: newName.trim()
+        });
+
+        await loadGangs();
+        render();
+        return;
+      }
+
+      // ================= DELETE GANG =================
       if (removeGangBtn) {
         e.stopPropagation();
         const id = removeGangBtn.getAttribute('data-remove-gang');
@@ -451,6 +475,7 @@
         return;
       }
 
+      // ================= SELECT GANG =================
       if (gangCard) {
         selectedGangId = gangCard.getAttribute('data-gang');
         searchTerm = '';
@@ -459,6 +484,7 @@
         return;
       }
 
+      // ================= DELETE CATEGORY =================
       if (removeCatBtn) {
         const [gangId, catId] = removeCatBtn.getAttribute('data-remove-cat').split('|');
         const g = getGang(gangId);
@@ -471,6 +497,7 @@
         return;
       }
 
+      // ================= DELETE ITEM =================
       if (removeItemBtn) {
         const [gangId, catId, itemId] = removeItemBtn.getAttribute('data-remove-item').split('|');
         await Api.del(`/gangs/${gangId}/categories/${catId}/items/${itemId}`);
@@ -479,18 +506,21 @@
         return;
       }
 
+      // ================= EDIT ITEM =================
       if (editItemBtn) {
         editingItems.add(editItemBtn.getAttribute('data-edit-item-btn'));
         renderContent();
         return;
       }
 
+      // ================= CANCEL EDIT ITEM =================
       if (cancelEditBtn) {
         editingItems.delete(cancelEditBtn.getAttribute('data-cancel-edit'));
         renderContent();
         return;
       }
 
+      // ================= PRESET CATEGORY =================
       if (presetCat) {
         if (!selectedGangId) return;
         const name = presetCat.getAttribute('data-preset-cat');
@@ -500,6 +530,7 @@
         return;
       }
 
+      // ================= ADD CATEGORY =================
       if (addCatBtn) {
         if (!selectedGangId) return;
         const input = document.getElementById('newCatName');
@@ -511,6 +542,7 @@
         render();
         return;
       }
+
     } catch (err) {
       toast(err.message, true);
     }

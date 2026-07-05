@@ -185,30 +185,55 @@
     renderContent();
   }
 
-  function renderSidebar() {
-    const list = document.getElementById('gangList');
-    if (!state.gangs.length) {
-      list.innerHTML = `<div class="sidebar-empty">Aucun gang enregistré.${canEdit() ? '<br>Créez le premier dossier ci-dessous.' : ''}</div>`;
-      return;
-    }
-    list.innerHTML = state.gangs
-      .map((g) => {
-        const itemCount = g.categories.reduce((s, c) => s + c.items.length, 0);
-        const active = g.id === selectedGangId ? 'active' : '';
-        return `
+ function renderSidebar() {
+  const list = document.getElementById('gangList');
+
+  if (!state.gangs.length) {
+    list.innerHTML = `<div class="sidebar-empty">Aucun gang enregistré.${canEdit() ? '<br>Créez le premier dossier ci-dessous.' : ''}</div>`;
+    return;
+  }
+
+  list.innerHTML = state.gangs
+    .map((g) => {
+      const itemCount = g.categories.reduce((s, c) => s + c.items.length, 0);
+      const active = g.id === selectedGangId ? 'active' : '';
+
+      return `
         <div class="gang-card ${active}" data-gang="${g.id}">
           <div class="gang-badge">${escapeHtml(initials(g.name))}</div>
+
           <div class="gang-card-info">
             <div class="gang-card-name">${escapeHtml(g.name)}</div>
-            <div class="gang-card-meta">${g.categories.length} catégorie(s) · ${itemCount} item(s)</div>
+            <div class="gang-card-meta">
+              ${g.categories.length} catégorie(s) · ${itemCount} item(s)
+            </div>
           </div>
-          ${isAdmin() ? `<button class="icon-btn" data-remove-gang="${g.id}" title="Supprimer ce gang">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-          </button>` : ''}
-        </div>`;
-      })
-      .join('');
-  }
+
+          ${isAdmin() ? `
+            <div class="gang-actions">
+
+              <!-- ✏️ RENOMMER -->
+              <button class="icon-btn" data-edit-gang="${g.id}" title="Renommer">
+                ✏️
+              </button>
+
+              <!-- 🗑 SUPPRIMER -->
+              <button class="icon-btn" data-remove-gang="${g.id}" title="Supprimer ce gang">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M3 6h18"/>
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                </svg>
+              </button>
+
+            </div>
+          ` : ''}
+
+        </div>
+      `;
+    })
+    .join('');
+}
 
   function renderContent() {
     const content = document.getElementById('content');

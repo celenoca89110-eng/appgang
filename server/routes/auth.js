@@ -12,64 +12,85 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
 
+if (!JWT_SECRET) {
+  console.error('[fatal] JWT_SECRET manquant');
+  process.exit(1);
+}
+
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
+    {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
 }
 
 //
-// LOGIN
+// 🔥 LOGIN
 //
 router.post('/login', async (req, res) => {
-  const { username, password } = req.body || {};
+  try {
+    const { username, password } = req.body || {};
 
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username et password requis.' });
-  }
-
-  const result = await db.query(
-    'SELECT * FROM users WHERE username = $1',
-    [username]
-  );
-
-  const user = result.rows[0];
-
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Identifiants incorrects.' });
-  }
-
-  const token = signToken(user);
-
-  logAction(
-    { id: user.id, username: user.username },
-    'login',
-    'auth',
-    user.id,
-    user.username
-  );
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username et password requis.' });
     }
-  });
+
+    const result = await db.query(
+      'SELECT * FROM users WHERE username = $1',
+      [username]
+    );
+
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(401).json({ error: 'Identifiants incorrects.' });
+    }
+
+    const passwordOk = await bcrypt.compare(password, user.password_hash);
+
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Identifiants incorrects.' });
+    }
+
+    const token = signToken(user);
+
+    await logAction(
+      { id: user.id, username: user.username },
+      'login',
+      'auth',
+      user.id,
+      user.username
+    );
+
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erreur serveur login' });
+  }
 });
 
 //
-// ME
+// 🔥 ME
 //
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
 //
-// LIST USERS (ADMIN)
+// 🔥 LIST USERS (ADMIN)
 //
 router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const result = await db.query(
@@ -80,10 +101,11 @@ router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
 });
 
 //
-// CREATE USER (ADMIN)
+// 🔥 CREATE USER (ADMIN)
 //
 router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { username, password, role } = req.body || {};
+
   const validRoles = ['admin', 'staff', 'viewer'];
 
   if (!username || !password) {
@@ -108,7 +130,7 @@ router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
   }
 
   const id = uuid();
-  const hash = bcrypt.hashSync(password, 10);
+  const hash = await bcrypt.hash(password, 10);
   const finalRole = role || 'viewer';
 
   await db.query(
@@ -117,17 +139,18 @@ router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
     [id, username, hash, finalRole]
   );
 
-  logAction(req.user, 'create', 'user', id, username, { role: finalRole });
+  await logAction(req.user, 'create', 'user', id, username, { role: finalRole });
 
   res.status(201).json({ id, username, role: finalRole });
 });
 
 //
-// UPDATE USER
+// 🔥 UPDATE USER
 //
 router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { role, password } = req.body || {};
+
   const validRoles = ['admin', 'staff', 'viewer'];
 
   const userRes = await db.query(
@@ -157,7 +180,7 @@ router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => 
       return res.status(400).json({ error: 'Mot de passe trop court.' });
     }
 
-    const hash = bcrypt.hashSync(password, 10);
+    const hash = await bcrypt.hash(password, 10);
 
     await db.query(
       'UPDATE users SET password_hash = $1 WHERE id = $2',
@@ -165,13 +188,13 @@ router.put('/users/:id', requireAuth, requireRole('admin'), async (req, res) => 
     );
   }
 
-  logAction(req.user, 'update', 'user', id, user.username, { role });
+  await logAction(req.user, 'update', 'user', id, user.username, { role });
 
   res.json({ message: 'Utilisateur mis à jour.' });
 });
 
 //
-// DELETE USER
+// 🔥 DELETE USER
 //
 router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { id } = req.params;
@@ -196,7 +219,7 @@ router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) 
     [id]
   );
 
-  logAction(req.user, 'delete', 'user', id, user.username);
+  await logAction(req.user, 'delete', 'user', id, user.username);
 
   res.json({ message: 'Utilisateur supprimé.' });
 });

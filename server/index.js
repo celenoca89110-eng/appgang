@@ -36,7 +36,10 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/auth', authRoutes);
 app.use('/api/gangs', gangsRoutes);
 app.use('/api', miscRoutes);
-
+app.get('/debug/users', async (req, res) => {
+  const result = await db.query('SELECT * FROM users');
+  res.json(result.rows);
+});
 app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );

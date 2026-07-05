@@ -2,8 +2,7 @@ require('dotenv').config();
 
 const initDB = require('./db/init');
 const seed = require('./db/seed');
-
-const db = require('./db/database'); // ✅ FIX IMPORTANT
+const db = require('./db/database');
 
 const path = require('path');
 const express = require('express');
@@ -13,7 +12,11 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
 const authRoutes = require('./routes/auth');
-const { router: gangsRoutes } = require('./routes/gangs');
+
+// ✅ OPTION 2 SAFE IMPORT (évite undefined crash)
+const gangsModule = require('./routes/gangs');
+const gangsRoutes = gangsModule?.router;
+
 const miscRoutes = require('./routes/misc');
 
 const PORT = process.env.PORT || 3000;
@@ -35,13 +38,28 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // =====================
+// DEBUG ROUTES SAFE CHECK
+// =====================
+function safeUse(path, route, name) {
+  if (!route) {
+    console.error(`❌ ROUTE MANQUANTE: ${name} (${path}) est undefined`);
+    return;
+  }
+  app.use(path, route);
+}
+
+// =====================
 // ROUTES API
 // =====================
 app.use('/api/auth', authRoutes);
-app.use('/api/gangs', gangsRoutes);
-app.use('/api', miscRoutes);
 
-// 🔥 DEBUG USERS (SAFE)
+// 🔥 FIX IMPORTANT ICI
+safeUse('/api/gangs', gangsRoutes, 'gangsRoutes');
+safeUse('/api', miscRoutes, 'miscRoutes');
+
+// =====================
+// DEBUG USERS
+// =====================
 app.get('/debug/users', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM users');
@@ -84,8 +102,9 @@ io.on('connection', (socket) => {
 // FRONT SPA
 // =====================
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api'))
+  if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API not found' });
+  }
 
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });

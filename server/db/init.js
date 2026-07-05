@@ -6,7 +6,7 @@ async function initDB() {
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'viewer',
+      role TEXT DEFAULT 'viewer',
       created_at TIMESTAMP DEFAULT NOW()
     );
 
@@ -47,7 +47,7 @@ async function initDB() {
     );
   `);
 
-  console.log("DB PostgreSQL initialisée");
+  console.log("✅ Tables PostgreSQL créées");
 }
 
 module.exports = initDB;

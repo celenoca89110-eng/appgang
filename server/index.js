@@ -3,6 +3,8 @@ require('dotenv').config();
 const initDB = require('./db/init');
 const seed = require('./db/seed');
 
+const db = require('./db/database'); // ✅ FIX IMPORTANT
+
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
@@ -32,19 +34,35 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// ROUTES
+// =====================
+// ROUTES API
+// =====================
 app.use('/api/auth', authRoutes);
 app.use('/api/gangs', gangsRoutes);
 app.use('/api', miscRoutes);
+
+// 🔥 DEBUG USERS (SAFE)
 app.get('/debug/users', async (req, res) => {
-  const result = await db.query('SELECT * FROM users');
-  res.json(result.rows);
+  try {
+    const result = await db.query('SELECT * FROM users');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('DEBUG ERROR:', err);
+    res.status(500).json({
+      error: 'DB error',
+      details: err.message
+    });
+  }
 });
+
+// HEALTH CHECK
 app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );
 
-// SOCKET
+// =====================
+// SOCKET.IO
+// =====================
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('Auth requise'));
@@ -62,7 +80,9 @@ io.on('connection', (socket) => {
   console.log(`[socket] ${socket.user.username}`);
 });
 
-// SPA
+// =====================
+// FRONT SPA
+// =====================
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api'))
     return res.status(404).json({ error: 'API not found' });
@@ -70,7 +90,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-// 🚀 START PROPRE (IMPORTANT)
+// =====================
+// START SERVER
+// =====================
 async function start() {
   try {
     console.log("🔄 Init DB...");

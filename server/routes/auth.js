@@ -33,53 +33,63 @@ function signToken(user) {
 // 🔥 LOGIN
 //
 router.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
+  const { username, password } = req.body || {};
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username et password requis.' });
-    }
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username et password requis.' });
+  }
 
-    const result = await db.query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    );
+  const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-    const user = result.rows[0];
-
-    if (!user) {
+  // 🔥 ADMIN LOGIN VIA VARIABLES ENV
+  if (username === ADMIN_USERNAME) {
+    if (password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Identifiants incorrects.' });
     }
 
-    const passwordOk = await bcrypt.compare(password, user.password_hash);
-
-    if (!passwordOk) {
-      return res.status(401).json({ error: 'Identifiants incorrects.' });
-    }
-
-    const token = signToken(user);
-
-    await logAction(
-      { id: user.id, username: user.username },
-      'login',
-      'auth',
-      user.id,
-      user.username
+    const token = jwt.sign(
+      {
+        id: 'admin',
+        username: ADMIN_USERNAME,
+        role: 'admin'
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     return res.json({
       token,
       user: {
-        id: user.id,
-        username: user.username,
-        role: user.role
+        id: 'admin',
+        username: ADMIN_USERNAME,
+        role: 'admin'
       }
     });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Erreur serveur login' });
   }
+
+  // 🔥 NORMAL USERS (DATABASE)
+  const result = await db.query(
+    'SELECT * FROM users WHERE username = $1',
+    [username]
+  );
+
+  const user = result.rows[0];
+
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Identifiants incorrects.' });
+  }
+
+  const token = signToken(user);
+
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    }
+  });
 });
 
 //
